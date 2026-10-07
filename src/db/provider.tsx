@@ -1,19 +1,35 @@
-import { addDatabaseChangeListener, SQLiteProvider, useSQLiteContext } from 'expo-sqlite';
+import {
+  addDatabaseChangeListener,
+  SQLiteProvider,
+  useSQLiteContext,
+  type SQLiteDatabase,
+} from 'expo-sqlite';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+
+import { bootStep } from '@/lib/boot';
 
 import { migrate } from './migrations';
 import type { Db } from './types';
 
 export const DATABASE_NAME = 'ownbooks.db';
 
+// These must keep the same identity across renders: in suspense mode
+// SQLiteProvider caches the open database by reference to `options` and
+// `onInit`, and a new object on every retry reopens the database forever.
+const OPEN_OPTIONS = { enableChangeListener: true };
+
+async function initDatabase(db: SQLiteDatabase): Promise<void> {
+  bootStep('database opened');
+  const version = await migrate(db);
+  bootStep(`database migrated (v${version})`);
+}
+
 export function DatabaseProvider({ children }: { children: ReactNode }) {
   return (
     <SQLiteProvider
       databaseName={DATABASE_NAME}
-      options={{ enableChangeListener: true }}
-      onInit={async (db) => {
-        await migrate(db);
-      }}
+      options={OPEN_OPTIONS}
+      onInit={initDatabase}
       useSuspense>
       {children}
     </SQLiteProvider>

@@ -1,7 +1,8 @@
 import { getNetworkStateAsync } from 'expo-network';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { useDb } from '@/db/provider';
+import { bootStep } from '@/lib/boot';
 import { supabase } from '@/lib/supabase';
 
 import { accountFromUser } from './account';
@@ -14,19 +15,31 @@ import { useAuthStore } from './store';
  */
 export function AuthBridge({ children }: { children: ReactNode }) {
   const db = useDb();
+  const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const store = useAuthStore.getState();
 
-    const ready = store.hydrate(db);
-    if (!supabase) return;
+    bootStep('loading account');
+    const ready = store.hydrate(db).then(
+      () => bootStep('account loaded'),
+      (e: unknown) => {
+        // Surface to the startup error boundary instead of hanging on the splash.
+        if (!cancelled) setError(e instanceof Error ? e : new Error(String(e)));
+      },
+    );
+    if (!supabase) {
+      bootStep('no backend configured');
+      return;
+    }
 
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
       // Supabase advises against awaiting inside this callback, so defer.
       setTimeout(async () => {
         await ready;
         if (cancelled) return;
+        bootStep(`auth event ${event}`);
         const { signedIn, signedOut, account } = useAuthStore.getState();
         if (session?.user) {
           await signedIn(db, accountFromUser(session.user));
@@ -51,5 +64,6 @@ export function AuthBridge({ children }: { children: ReactNode }) {
     };
   }, [db]);
 
+  if (error) throw error;
   return children;
 }
