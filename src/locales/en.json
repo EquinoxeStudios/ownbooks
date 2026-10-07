@@ -1,0 +1,132 @@
+{
+  "common": {
+    "continue": "Continue",
+    "next": "Next",
+    "back": "Back",
+    "cancel": "Cancel",
+    "retry": "Try again",
+    "stepOf": "Step {{step}} of {{total}}"
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "Your books.\nYour files.",
+      "lead": "Read and listen to the DRM-free books you already own.",
+      "tags": {
+        "free": "Always free",
+        "noAds": "No ads",
+        "openSource": "Open source",
+        "offline": "Works offline"
+      },
+      "haveAccount": "Already have an account?",
+      "signIn": "Sign in"
+    },
+    "private": {
+      "title": "Nothing gets uploaded.",
+      "local": "Your ebooks and audiobooks stay on your device.",
+      "privacy": "What you read is private. We never see titles or files."
+    },
+    "progress": {
+      "title": "Never lose your place.",
+      "sync": "Only your reading and listening progress follows you between devices.",
+      "autosave": "Your spot is saved automatically, even offline."
+    },
+    "bring": {
+      "title": "One library for reading and listening.",
+      "lead": "What will you bring first?",
+      "audio": "Audiobooks",
+      "ebook": "Ebooks",
+      "both": "A bit of both"
+    }
+  },
+  "auth": {
+    "signIn": {
+      "title": "Last step: save your place.",
+      "lead": "Your account keeps your progress in sync. Your books stay on this phone.",
+      "returningTitle": "Welcome back.",
+      "returningLead": "Sign in to pick up where you left off. Your books stay on this phone.",
+      "apple": "Continue with Apple",
+      "google": "Continue with Google",
+      "email": "Continue with email",
+      "legal": "By continuing you agree to the <terms>Terms</terms> and <privacy>Privacy policy</privacy>."
+    },
+    "email": {
+      "title": "What’s your email?",
+      "lead": "We’ll send you a 6-digit code. No password needed.",
+      "label": "Email address",
+      "placeholder": "you@example.com",
+      "send": "Send code",
+      "invalid": "That doesn’t look like an email address."
+    },
+    "verify": {
+      "title": "Check your email.",
+      "lead": "Enter the 6-digit code we sent to {{email}}.",
+      "label": "6-digit code",
+      "submit": "Verify",
+      "resend": "Send a new code",
+      "resendIn": "Send a new code in {{seconds}} s",
+      "invalid": "That code didn’t work. Check it and try again, or send a new one."
+    },
+    "errors": {
+      "offline": "You’re offline. Connect to the internet to sign in.",
+      "notConfigured": "This build isn’t connected to a backend yet. See .env.example.",
+      "providerUnavailable": "This sign-in option isn’t set up in this build.",
+      "generic": "Something went wrong. Please try again.",
+      "rateLimited": "Too many attempts. Wait a minute and try again."
+    },
+    "switch": {
+      "title": "This phone has books from another account.",
+      "lead": "They stay hidden while you’re signed in. You can remove them to free up space.",
+      "keep": "Keep them hidden",
+      "remove": "Remove them from this phone"
+    }
+  },
+  "tabs": {
+    "library": "Library",
+    "activity": "Activity",
+    "profile": "Profile"
+  },
+  "library": {
+    "title": "Library",
+    "import": "Import books",
+    "continue": "Continue",
+    "yourBooks": "Your books",
+    "sort": "Sort",
+    "filter": {
+      "all": "All",
+      "audio": "Audiobooks",
+      "ebook": "Ebooks"
+    },
+    "type": {
+      "audio": "Audiobook",
+      "ebook": "Ebook"
+    },
+    "notOnDevice": "Not on this device",
+    "empty": {
+      "title": "Your shelf is waiting.",
+      "body": "Bring an ebook or audiobook you already own. Files need to be DRM-free.",
+      "bodyAudio": "Bring an audiobook you already own. Files need to be DRM-free.",
+      "bodyEbook": "Bring an ebook you already own. Files need to be DRM-free.",
+      "cta": "Add your first book",
+      "formats": "MP3, M4B, M4A and EPUB",
+      "comingSoon": "Importing arrives in the next build."
+    }
+  },
+  "activity": {
+    "title": "Activity",
+    "empty": "Your listening and reading time will show up here."
+  },
+  "profile": {
+    "title": "Profile",
+    "signedInWith": {
+      "apple": "Signed in with Apple",
+      "google": "Signed in with Google",
+      "email": "Signed in with email"
+    },
+    "settings": "Settings",
+    "privacy": "Privacy policy",
+    "terms": "Terms",
+    "signOut": "Sign out",
+    "signOutNote": "Your books stay on this phone and come back when you sign in again.",
+    "version": "Version {{version}}"
+  }
+}
