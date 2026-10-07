@@ -2,7 +2,7 @@ import type { ConfigContext, ExpoConfig } from 'expo/config';
 
 // Everything project-specific comes from the environment so forks can point the
 // app at their own backend. See .env.example.
-const BUNDLE_ID = process.env.OWNBOOKS_BUNDLE_ID ?? 'dev.ownbooks.app';
+const BUNDLE_ID = process.env.OWNBOOKS_BUNDLE_ID || 'dev.ownbooks.app';
 const GOOGLE_IOS_URL_SCHEME = process.env.GOOGLE_IOS_URL_SCHEME;
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
@@ -74,7 +74,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     typedRoutes: true,
     reactCompiler: true,
   },
+  // Forks: set EAS_OWNER / EAS_PROJECT_ID (from `npx eas-cli init`) to use your own project.
+  owner: process.env.EAS_OWNER || 'agencyequinox',
   extra: {
-    eas: process.env.EAS_PROJECT_ID ? { projectId: process.env.EAS_PROJECT_ID } : undefined,
+    eas: { projectId: process.env.EAS_PROJECT_ID || '53b114f3-80af-48cd-8934-f5d0cb74b495' },
   },
 });
