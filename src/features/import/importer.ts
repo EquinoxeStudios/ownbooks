@@ -7,7 +7,6 @@ import { findByFingerprint, insertAudioBook } from '@/db/repositories/books';
 import type { Db } from '@/db/types';
 import { BOOKS_DIR } from '@/lib/files';
 
-import { chunkedCopy, CopyCancelled } from './copy';
 import { bookFingerprint, fileFingerprint, fingerprintRanges } from './fingerprint';
 import { AUDIO_PICKER_TYPES, extensionOf } from './formats';
 import { groupPickedFiles, type ImportGroup, type PickedFile } from './grouping';
@@ -24,6 +23,9 @@ const TMP_PREFIX = '.import-';
 /** Keep this much free space after an import. */
 const SPACE_MARGIN = 50 * 1024 * 1024;
 const PROBE_TIMEOUT_MS = 20_000;
+
+/** Thrown when the user cancels; the partial import is cleaned up silently. */
+class CopyCancelled extends Error {}
 
 class ImportFailure extends Error {
   constructor(public readonly key: ImportErrorKey, cause?: unknown) {
@@ -148,39 +150,47 @@ async function copyGroup(
     const fileName = `${String(i + 1).padStart(3, '0')}.${extensionOf(picked.name)}`;
     const source = new File(picked.uri);
     const dest = new File(tmpDir, fileName);
-    step = `create file ${i + 1}`;
-    dest.create({ overwrite: true });
-    const size = picked.size || source.size;
-    let readHandle: ReturnType<File['open']> | null = null;
-    try {
-      readHandle = source.open(FileMode.ReadOnly);
-    } catch (error) {
-      // Some document providers can't be opened for random access; fall back
-      // to the native copy (no byte-level progress, but still off the JS thread).
-      console.warn('Chunked copy unavailable, using native copy', error);
-    }
-    let copied: number;
-    step = readHandle ? `copy file ${i + 1} (chunked)` : `copy file ${i + 1} (native)`;
-    if (readHandle) {
-      copied = await chunkedCopy(
-        readHandle,
-        dest.open(FileMode.Truncate),
-        size,
-        (n) =>
-          set((st) => ({ current: st.current && { ...st.current, bytesCopied: before + n } })),
-        () => s.cancelled || s !== session,
-      );
-    } else {
-      await source.copy(dest, { overwrite: true });
-      if (s.cancelled || s !== session) throw new CopyCancelled();
-      copied = dest.size;
-      set((st) => ({ current: st.current && { ...st.current, bytesCopied: before + copied } }));
+    const expected = picked.size || source.size;
+    step = `copy file ${i + 1}`;
+    const copied = await copyWithProgress(source, dest, (n) =>
+      set((st) => ({ current: st.current && { ...st.current, bytesCopied: before + n } })),
+    );
+    // The native copy can't be interrupted; honour a cancel as soon as it returns.
+    if (s.cancelled || s !== session) throw new CopyCancelled();
+    if (expected > 0 && copied !== expected) {
+      throw new Error(`copied ${copied} of ${expected} bytes`);
     }
     before += copied;
     out.push({ fileName, picked });
     set((st) => ({ current: st.current && { ...st.current, filesCopied: i + 1 } }));
   }
   return out;
+}
+
+/**
+ * Copies a picked file with expo-file-system's native copy (off the JS thread)
+ * and reports progress by polling the destination size.
+ *
+ * Reading picked `content://` files through FileHandle fails on Android with
+ * "Bad file descriptor" (expo-file-system 57 lets the ParcelFileDescriptor be
+ * garbage-collected), so chunked JS copying isn't usable for picked files.
+ */
+async function copyWithProgress(source: File, dest: File, onProgress: (bytes: number) => void): Promise<number> {
+  const poll = setInterval(() => {
+    try {
+      if (dest.exists) onProgress(dest.size);
+    } catch {
+      // Size can be briefly unreadable while the file is being created.
+    }
+  }, 250);
+  try {
+    await source.copy(dest, { overwrite: true });
+  } finally {
+    clearInterval(poll);
+  }
+  const size = dest.size;
+  onProgress(size);
+  return size;
 }
 
 async function analyse(

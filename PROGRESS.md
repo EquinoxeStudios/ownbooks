@@ -71,10 +71,10 @@ Still to verify in the Milestone 1 review:
 ## Milestone 2: Single-file audio + risk spike 🔨
 
 Done (code, tests green):
-- [x] Import via `expo-document-picker` (multi-select). Files are copied in 1 MiB chunks
-      with progress and cancel into `books/.import-<id>/`, then renamed to `books/<bookId>/`
-      together with the DB insert. Failure or cancel leaves nothing behind; stale temp folders
-      are cleaned on launch. Falls back to native copy if a provider can't be opened in chunks.
+- [x] Import via `expo-document-picker` (multi-select). Files are copied with the native
+      async copy (progress by polling the destination size; a cancel cleans up when the copy
+      returns) into `books/.import-<id>/`, then renamed to `books/<bookId>/` together with the
+      DB insert. Failure or cancel leaves nothing behind; stale temp folders are cleaned on launch.
 - [x] Grouping: several MP3/M4A → one book (natural sort); each M4B its own book; DRM/unsupported rejected
 - [x] Duration probe (also proves the file plays), fingerprint (size + first/last 1 MiB, SHA-256),
       duplicate detection, free-space check
@@ -95,6 +95,9 @@ Audio findings (expo-audio 57):
   on both platforms, `setHandleAudioBecomingNoisy(true)` on Android. **Re-check this patch
   on every Expo SDK upgrade.** Lock-screen intervals stay fixed even when in-app skip
   intervals become configurable (milestone 3).
+- expo-file-system 57: reading a picked `content://` file through `FileHandle` fails on Android
+  with "Bad file descriptor" (the ParcelFileDescriptor is garbage-collected), so imports use the
+  native copy instead of chunked JS reads. Worth reporting upstream.
 - No lock-screen artwork yet: generated covers aren't images. Real cover art arrives in milestone 3.
 
 Device checks (spec §6.1). Stop and reassess the audio library if any fail:
