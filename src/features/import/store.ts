@@ -39,6 +39,8 @@ type ImportState = {
   current: CurrentImport | null;
   rejected: Rejected[];
   error: ImportErrorKey | null;
+  /** Technical detail for unexpected failures (step + native error), shown small for bug reports. */
+  errorDetail: string | null;
   savedBookIds: string[];
   /** Number of files that went into the most recently saved book. */
   lastSavedFileCount: number;
@@ -51,6 +53,7 @@ export const initialImportState: ImportState = {
   current: null,
   rejected: [],
   error: null,
+  errorDetail: null,
   savedBookIds: [],
   lastSavedFileCount: 0,
 };

@@ -171,7 +171,8 @@
       "single": "It’s in your library now.",
       "start": "Start listening",
       "library": "Go to library"
-    }
+    },
+    "errorDetail": "Details for support: {{detail}}"
   },
   "player": {
     "open": "Open player: {{title}}",

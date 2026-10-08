@@ -47,6 +47,15 @@ let session: {
 
 const set = useImportStore.setState;
 
+/** Which step of the pipeline is running, reported with unexpected errors. */
+let step = 'start';
+
+function describe(error: unknown): string {
+  const e = error instanceof Error ? error : new Error(String(error));
+  const code = (e as { code?: unknown }).code;
+  return `${step}: ${e.name}${code ? ` [${String(code)}]` : ''}: ${e.message}`.slice(0, 500);
+}
+
 /** Opens the system picker. Returns false if the user backed out. */
 export async function pickAndImport(db: Db, userId: string): Promise<boolean> {
   const result = await getDocumentAsync({
@@ -79,6 +88,7 @@ async function prepareCurrent(): Promise<void> {
   set({
     status: 'preparing',
     error: null,
+    errorDetail: null,
     current: {
       group,
       title: group.suggestedTitle,
@@ -91,18 +101,21 @@ async function prepareCurrent(): Promise<void> {
   });
 
   let tmpDir: Directory | null = null;
+  step = 'checks';
   try {
     if (group.kind === 'ebook') throw new ImportFailure('ebookSoon');
     if (bytesTotal > 0 && Paths.availableDiskSpace < bytesTotal + SPACE_MARGIN) {
       throw new ImportFailure('noSpace');
     }
 
+    step = 'temp folder';
     tmpDir = new Directory(Paths.document, BOOKS_DIR, `${TMP_PREFIX}${randomUUID()}`);
     tmpDir.create({ intermediates: true });
 
     const copied = await copyGroup(group, tmpDir, s);
     const prepared = await analyse(group, tmpDir, copied);
 
+    step = 'duplicate check';
     const existing = await findByFingerprint(s.db, s.userId, prepared.fingerprint);
     if (existing?.on_device) throw new ImportFailure('duplicate');
 
@@ -113,8 +126,13 @@ async function prepareCurrent(): Promise<void> {
   } catch (error) {
     if (tmpDir?.exists) tmpDir.delete();
     if (error instanceof CopyCancelled || s !== session) return;
-    set({ status: 'failed', error: error instanceof ImportFailure ? error.key : 'generic' });
-    if (!(error instanceof ImportFailure)) console.warn('Import failed', error);
+    const expected = error instanceof ImportFailure;
+    set({
+      status: 'failed',
+      error: expected ? error.key : 'generic',
+      errorDetail: expected ? null : describe(error),
+    });
+    if (!expected) console.warn('Import failed', error);
   }
 }
 
@@ -130,6 +148,7 @@ async function copyGroup(
     const fileName = `${String(i + 1).padStart(3, '0')}.${extensionOf(picked.name)}`;
     const source = new File(picked.uri);
     const dest = new File(tmpDir, fileName);
+    step = `create file ${i + 1}`;
     dest.create({ overwrite: true });
     const size = picked.size || source.size;
     let readHandle: ReturnType<File['open']> | null = null;
@@ -141,6 +160,7 @@ async function copyGroup(
       console.warn('Chunked copy unavailable, using native copy', error);
     }
     let copied: number;
+    step = readHandle ? `copy file ${i + 1} (chunked)` : `copy file ${i + 1} (native)`;
     if (readHandle) {
       copied = await chunkedCopy(
         readHandle,
@@ -175,6 +195,7 @@ async function analyse(
 
   for (const { fileName, picked } of copied) {
     const file = new File(tmpDir, fileName);
+    step = `fingerprint ${fileName}`;
     const size = file.size;
     sizeBytes += size;
 
@@ -192,10 +213,12 @@ async function analyse(
     }
     fingerprints.push(await fileFingerprint(size, headBytes, tailBytes, sha256));
 
+    step = `probe ${fileName}`;
     const durationMs = await probeDuration(file.uri);
     tracks.push({ fileName, title: picked.name.replace(/\.[^.]+$/, ''), durationMs });
   }
 
+  step = 'book fingerprint';
   return {
     tmpDir,
     tracks,
@@ -250,8 +273,10 @@ export async function saveCurrent(): Promise<string | null> {
   const bookId = randomUUID();
   const finalDir = new Directory(Paths.document, BOOKS_DIR, bookId);
   try {
+    step = 'move into library';
     prepared.tmpDir.rename(bookId);
     s.prepared = null;
+    step = 'save to database';
     await insertAudioBook(s.db, {
       id: bookId,
       userId: s.userId,
@@ -271,7 +296,7 @@ export async function saveCurrent(): Promise<string | null> {
     if (finalDir.exists) finalDir.delete();
     if (prepared.tmpDir.exists) prepared.tmpDir.delete();
     console.warn('Saving import failed', error);
-    set({ status: 'failed', error: 'generic' });
+    set({ status: 'failed', error: 'generic', errorDetail: describe(error) });
     return null;
   }
 

@@ -82,6 +82,11 @@ export default function ImportScreen() {
           <Text variant="lead" accessibilityRole="alert">
             {t(`import.errors.${st.error ?? 'generic'}`)}
           </Text>
+          {st.errorDetail ? (
+            <Text variant="caption" selectable style={styles.detail}>
+              {t('import.errorDetail', { detail: st.errorDetail })}
+            </Text>
+          ) : null}
         </View>
       </Screen>
     );
@@ -190,6 +195,7 @@ const styles = StyleSheet.create({
   header: { height: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   back: { marginLeft: -10 },
   copy: { gap: 12 },
+  detail: { fontFamily: 'monospace', fontSize: 12 },
   bookCard: { flexDirection: 'row', gap: 16, alignItems: 'center' },
   bookText: { flex: 1, gap: 2 },
   bookTitle: { fontFamily: fonts.bold, fontSize: 20, lineHeight: 24 },
