@@ -2,6 +2,7 @@ import { getNetworkStateAsync } from 'expo-network';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { useDb } from '@/db/provider';
+import { unload as unloadPlayer } from '@/features/player/controller';
 import { bootStep } from '@/lib/boot';
 import { supabase } from '@/lib/supabase';
 
@@ -63,6 +64,15 @@ export function AuthBridge({ children }: { children: ReactNode }) {
       data.subscription.unsubscribe();
     };
   }, [db]);
+
+  // Signing out (or a different account) stops playback and clears lock-screen controls.
+  useEffect(
+    () =>
+      useAuthStore.subscribe((state, prev) => {
+        if (prev.account && state.account?.id !== prev.account.id) void unloadPlayer();
+      }),
+    [],
+  );
 
   if (error) throw error;
   return children;

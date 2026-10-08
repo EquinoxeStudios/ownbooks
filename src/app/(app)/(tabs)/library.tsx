@@ -1,11 +1,14 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlatList, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useLiveQuery } from '@/db/provider';
+import { useDb, useLiveQuery } from '@/db/provider';
 import { listLibrary, type LibraryFilter, type LibraryItem } from '@/db/repositories/books';
 import { useAuthStore } from '@/features/auth/store';
+import { pickAndImport } from '@/features/import/importer';
+import { loadBook } from '@/features/player/controller';
 import {
   Button,
   Chip,
@@ -27,13 +30,20 @@ export default function Library() {
   const [filter, setFilter] = useState<LibraryFilter>(
     choice === 'audio' ? 'audio' : choice === 'ebook' ? 'ebook' : 'all',
   );
-  const [showComingSoon, setShowComingSoon] = useState(false);
+  const db = useDb();
 
   const { data: all } = useLiveQuery((db) => listLibrary(db, userId, 'all'), ['books', 'progress'], userId);
   const books = (all ?? []).filter((b) => filter === 'all' || b.type === filter);
 
-  // Placeholder until the import flow lands in milestone 2.
-  const startImport = () => setShowComingSoon(true);
+  const startImport = async () => {
+    if (await pickAndImport(db, userId)) router.push('/import');
+  };
+
+  const openBook = (book: LibraryItem) => {
+    if (book.type !== 'audio' || !book.on_device) return;
+    router.push('/player');
+    void loadBook(db, book.id);
+  };
 
   // Avoid flashing the list header before we know whether the shelf is empty.
   if (!all) return <SafeAreaView edges={['top']} style={styles.root} />;
@@ -72,7 +82,7 @@ export default function Library() {
           <View style={styles.emptyFooter}>
             <Button label={t('library.empty.cta')} onPress={startImport} />
             <Text variant="meta" style={styles.center}>
-              {showComingSoon ? t('library.empty.comingSoon') : t('library.empty.formats')}
+              {t('library.empty.formats')}
             </Text>
           </View>
         </View>
@@ -117,22 +127,25 @@ export default function Library() {
                 />
               ))}
             </View>
-            {showComingSoon ? <Text variant="meta">{t('library.empty.comingSoon')}</Text> : null}
           </View>
         }
-        renderItem={({ item }) => <BookRow book={item} />}
+        renderItem={({ item }) => <BookRow book={item} onPress={() => openBook(item)} />}
         ItemSeparatorComponent={() => <View style={{ height: 24 }} />}
       />
     </SafeAreaView>
   );
 }
 
-function BookRow({ book }: { book: LibraryItem }) {
+function BookRow({ book, onPress }: { book: LibraryItem; onPress: () => void }) {
   const { t } = useTranslation();
   const pct = Math.round((book.fraction ?? 0) * 100);
   const meta = [book.author, t(`library.type.${book.type}`)].filter(Boolean).join(' · ');
   return (
-    <View style={styles.row} accessible accessibilityLabel={`${book.title}, ${meta}, ${pct}%`}>
+    <Pressable
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      accessibilityRole="button"
+      accessibilityLabel={`${book.title}, ${meta}, ${pct}%`}
+      onPress={onPress}>
       <GeneratedCover title={book.title} width={60} height={84} />
       <View style={styles.rowText}>
         <Text variant="title" numberOfLines={2}>
@@ -146,7 +159,7 @@ function BookRow({ book }: { book: LibraryItem }) {
           </Text>
         </View>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -174,6 +187,7 @@ const styles = StyleSheet.create({
   sectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   filters: { flexDirection: 'row', gap: 8 },
   row: { flexDirection: 'row', gap: 16, alignItems: 'center' },
+  rowPressed: { opacity: 0.7 },
   rowText: { flex: 1, gap: 4 },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
   pct: { fontFamily: fonts.bold },

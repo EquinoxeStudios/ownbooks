@@ -107,9 +107,11 @@
       "bodyAudio": "Bring an audiobook you already own. Files need to be DRM-free.",
       "bodyEbook": "Bring an ebook you already own. Files need to be DRM-free.",
       "cta": "Add your first book",
-      "formats": "MP3, M4B, M4A and EPUB",
-      "comingSoon": "Importing arrives in the next build."
-    }
+      "formats": "MP3, M4B, M4A and EPUB"
+    },
+    "continueListening": "Continue listening to {{title}}",
+    "minutesLeft": "{{count}} min left",
+    "hoursLeft": "{{hours}} h {{minutes}} min left"
   },
   "activity": {
     "title": "Activity",
@@ -128,5 +130,67 @@
     "signOut": "Sign out",
     "signOutNote": "Your books stay on this phone and come back when you sign in again.",
     "version": "Version {{version}}"
+  },
+  "import": {
+    "foundAudiobook": "We found your audiobook.",
+    "editDetails": "Edit details",
+    "doneEditing": "Done",
+    "titleLabel": "Title",
+    "authorLabel": "Author",
+    "authorPlaceholder": "Unknown author",
+    "filesFound_one": "{{count}} file found",
+    "filesFound_other": "{{count}} files found",
+    "inOrder": "We put them in order for you.",
+    "copying": "Copying to OwnBooks",
+    "analysing": "Getting it ready…",
+    "ofFiles": "{{done}} of {{total}}",
+    "untouched": "Your original files stay untouched. Nothing is uploaded.",
+    "save": "Save to library",
+    "saving": "Saving…",
+    "cancel": "Cancel import",
+    "nextOfQueue": "Book {{current}} of {{total}}",
+    "chooseOther": "Choose other files",
+    "skip": "Skip this one",
+    "close": "Close",
+    "errors": {
+      "title": "This file can’t be added.",
+      "drm": "This file is DRM-protected (for example from Audible or Kindle). OwnBooks only plays DRM-free files you own.",
+      "unsupported": "OwnBooks supports MP3, M4B and M4A audiobooks and EPUB ebooks.",
+      "duplicate": "This book is already in your library.",
+      "unplayable": "This file couldn’t be played. It may be damaged or in an unusual format.",
+      "noSpace": "There isn’t enough free space on this phone for this book.",
+      "ebookSoon": "Ebooks arrive in the next update. For now you can add audiobooks.",
+      "generic": "Something went wrong while adding this book. Nothing was saved."
+    },
+    "rejectedSome_one": "{{count}} file was skipped because it isn’t supported.",
+    "rejectedSome_other": "{{count}} files were skipped because they aren’t supported.",
+    "done": {
+      "title": "{{title}} is ready.",
+      "titleMany": "{{count}} books are ready.",
+      "filesBecameOne": "{{count}} audio files became one audiobook.",
+      "single": "It’s in your library now.",
+      "start": "Start listening",
+      "library": "Go to library"
+    }
+  },
+  "player": {
+    "open": "Open player: {{title}}",
+    "close": "Close player",
+    "trackOf": "Track {{current}} of {{total}}",
+    "play": "Play",
+    "pause": "Pause",
+    "skipBack": "Skip back {{seconds}} seconds",
+    "skipForward": "Skip forward {{seconds}} seconds",
+    "previousTrack": "Previous track",
+    "nextTrack": "Next track",
+    "seek": "Playback position",
+    "paused": "Paused",
+    "playing": "Playing",
+    "elapsed": "{{time}} elapsed",
+    "remaining": "{{time}} remaining",
+    "errors": {
+      "missingFile": "This book’s files are missing from this phone. Import it again to keep listening.",
+      "unplayable": "This book couldn’t be played."
+    }
   }
 }

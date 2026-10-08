@@ -1,0 +1,89 @@
+diff --git a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioPlayer.kt b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioPlayer.kt
+index c76a9fd..b250b53 100644
+--- a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioPlayer.kt
++++ b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioPlayer.kt
+@@ -24,7 +24,8 @@ import java.lang.ref.WeakReference
+ 
+ private const val PLAYBACK_STATUS_UPDATE = "playbackStatusUpdate"
+ private const val AUDIO_SAMPLE_UPDATE = "audioSampleUpdate"
+-private const val SEEK_JUMP_INTERVAL_MS: Long = 10_000
++private const val SEEK_BACK_INTERVAL_MS: Long = 15_000
++private const val SEEK_FORWARD_INTERVAL_MS: Long = 30_000
+ 
+ @UnstableApi
+ class AudioPlayer(
+@@ -37,8 +38,9 @@ class AudioPlayer(
+   player = ExoPlayer.Builder(context)
+     .setLooper(context.mainLooper)
+     .setAudioAttributes(AudioAttributes.DEFAULT, false)
+-    .setSeekForwardIncrementMs(SEEK_JUMP_INTERVAL_MS)
+-    .setSeekBackIncrementMs(SEEK_JUMP_INTERVAL_MS)
++    .setSeekForwardIncrementMs(SEEK_FORWARD_INTERVAL_MS)
++    .setSeekBackIncrementMs(SEEK_BACK_INTERVAL_MS)
++    .setHandleAudioBecomingNoisy(true)
+     .apply {
+       if (bufferDurationMs > 0) {
+         setLoadControl(
+diff --git a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
+index 196a5d5..b95a3b5 100644
+--- a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
++++ b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
+@@ -88,8 +88,8 @@ class AudioControlsService : MediaSessionService() {
+             currentPlayerRef.play()
+           }
+ 
+-        ACTION_SEEK_FORWARD -> currentPlayerRef.seekTo(currentPlayerRef.currentPosition + SEEK_INTERVAL_MS)
+-        ACTION_SEEK_BACKWARD -> currentPlayerRef.seekTo(currentPlayerRef.currentPosition - SEEK_INTERVAL_MS)
++        ACTION_SEEK_FORWARD -> currentPlayerRef.seekTo(currentPlayerRef.currentPosition + SEEK_FORWARD_INTERVAL_MS)
++        ACTION_SEEK_BACKWARD -> currentPlayerRef.seekTo(currentPlayerRef.currentPosition - SEEK_BACK_INTERVAL_MS)
+       }
+     }
+ 
+@@ -559,6 +559,7 @@ class AudioControlsService : MediaSessionService() {
+     const val ACTION_SEEK_FORWARD = "expo.modules.audio.action.SEEK_FORWARD"
+     const val ACTION_SEEK_BACKWARD = "expo.modules.audio.action.SEEK_BACKWARD"
+ 
+-    const val SEEK_INTERVAL_MS = 10000L
++    const val SEEK_FORWARD_INTERVAL_MS = 30000L
++    const val SEEK_BACK_INTERVAL_MS = 15000L
+   }
+ }
+diff --git a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt
+index 839aaef..07a5153 100644
+--- a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt
++++ b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt
+@@ -51,10 +51,10 @@ class AudioMediaSessionCallback : MediaSession.Callback {
+   ): ListenableFuture<SessionResult> {
+     when (command.customAction) {
+       AudioControlsService.ACTION_SEEK_FORWARD -> {
+-        session.player.seekTo(session.player.currentPosition + AudioControlsService.SEEK_INTERVAL_MS)
++        session.player.seekTo(session.player.currentPosition + AudioControlsService.SEEK_FORWARD_INTERVAL_MS)
+       }
+       AudioControlsService.ACTION_SEEK_BACKWARD -> {
+-        session.player.seekTo(session.player.currentPosition - AudioControlsService.SEEK_INTERVAL_MS)
++        session.player.seekTo(session.player.currentPosition - AudioControlsService.SEEK_BACK_INTERVAL_MS)
+       }
+     }
+     return super.onCustomCommand(session, controller, command, args)
+diff --git a/node_modules/expo-audio/ios/MediaController.swift b/node_modules/expo-audio/ios/MediaController.swift
+index e977f57..5e484c2 100644
+--- a/node_modules/expo-audio/ios/MediaController.swift
++++ b/node_modules/expo-audio/ios/MediaController.swift
+@@ -275,7 +275,7 @@ class MediaController {
+       return .success
+     }
+ 
+-    remoteCommandCenter.skipForwardCommand.preferredIntervals = [10.0]
++    remoteCommandCenter.skipForwardCommand.preferredIntervals = [30.0]
+     remoteCommandCenter.skipForwardCommand.addTarget { [weak self] event in
+       guard let player = self?.activePlayer,
+       let event = event as? MPSkipIntervalCommandEvent else {
+@@ -289,7 +289,7 @@ class MediaController {
+       return .success
+     }
+ 
+-    remoteCommandCenter.skipBackwardCommand.preferredIntervals = [10.0]
++    remoteCommandCenter.skipBackwardCommand.preferredIntervals = [15.0]
+     remoteCommandCenter.skipBackwardCommand.addTarget { [weak self] event in
+       guard let player = self?.activePlayer,
+       let event = event as? MPSkipIntervalCommandEvent else {

@@ -1,0 +1,328 @@
+import { createAudioPlayer, type AudioStatus } from 'expo-audio';
+import { CryptoDigestAlgorithm, digest, randomUUID } from 'expo-crypto';
+import { getDocumentAsync } from 'expo-document-picker';
+import { Directory, File, FileMode, Paths } from 'expo-file-system';
+
+import { findByFingerprint, insertAudioBook } from '@/db/repositories/books';
+import type { Db } from '@/db/types';
+import { BOOKS_DIR } from '@/lib/files';
+
+import { chunkedCopy, CopyCancelled } from './copy';
+import { bookFingerprint, fileFingerprint, fingerprintRanges } from './fingerprint';
+import { AUDIO_PICKER_TYPES, extensionOf } from './formats';
+import { groupPickedFiles, type ImportGroup, type PickedFile } from './grouping';
+import { initialImportState, useImportStore, type ImportErrorKey } from './store';
+
+/**
+ * Import pipeline (spec §6): pick → group → copy → analyse → confirm → save.
+ * Files are copied into a temporary `books/.import-<id>/` folder and only
+ * renamed to `books/<bookId>/` together with the database insert, so a failure
+ * or cancel at any step leaves no orphan files or rows.
+ */
+
+const TMP_PREFIX = '.import-';
+/** Keep this much free space after an import. */
+const SPACE_MARGIN = 50 * 1024 * 1024;
+const PROBE_TIMEOUT_MS = 20_000;
+
+class ImportFailure extends Error {
+  constructor(public readonly key: ImportErrorKey, cause?: unknown) {
+    super(key, { cause });
+  }
+}
+
+type Prepared = {
+  tmpDir: Directory;
+  tracks: { fileName: string; title: string; durationMs: number }[];
+  fingerprint: string;
+  sizeBytes: number;
+};
+
+let session: {
+  db: Db;
+  userId: string;
+  cancelled: boolean;
+  prepared: Prepared | null;
+} | null = null;
+
+const set = useImportStore.setState;
+
+/** Opens the system picker. Returns false if the user backed out. */
+export async function pickAndImport(db: Db, userId: string): Promise<boolean> {
+  const result = await getDocumentAsync({
+    type: AUDIO_PICKER_TYPES,
+    multiple: true,
+    copyToCacheDirectory: false,
+  });
+  if (result.canceled || result.assets.length === 0) return false;
+
+  const files: PickedFile[] = result.assets.map((a) => ({ uri: a.uri, name: a.name, size: a.size ?? 0 }));
+  const { groups, rejected } = groupPickedFiles(files);
+
+  set({ ...initialImportState, queue: groups, rejected });
+  if (groups.length === 0) {
+    set({ status: 'failed', error: rejected[0]?.reason ?? 'unsupported' });
+    return true;
+  }
+  session = { db, userId, cancelled: false, prepared: null };
+  void prepareCurrent();
+  return true;
+}
+
+async function prepareCurrent(): Promise<void> {
+  const s = session;
+  const { queue, index } = useImportStore.getState();
+  const group = queue[index];
+  if (!s || !group) return;
+
+  const bytesTotal = group.files.reduce((sum, f) => sum + f.size, 0);
+  set({
+    status: 'preparing',
+    error: null,
+    current: {
+      group,
+      title: group.suggestedTitle,
+      author: null,
+      bytesTotal,
+      bytesCopied: 0,
+      filesCopied: 0,
+      durationMs: null,
+    },
+  });
+
+  let tmpDir: Directory | null = null;
+  try {
+    if (group.kind === 'ebook') throw new ImportFailure('ebookSoon');
+    if (bytesTotal > 0 && Paths.availableDiskSpace < bytesTotal + SPACE_MARGIN) {
+      throw new ImportFailure('noSpace');
+    }
+
+    tmpDir = new Directory(Paths.document, BOOKS_DIR, `${TMP_PREFIX}${randomUUID()}`);
+    tmpDir.create({ intermediates: true });
+
+    const copied = await copyGroup(group, tmpDir, s);
+    const prepared = await analyse(group, tmpDir, copied);
+
+    const existing = await findByFingerprint(s.db, s.userId, prepared.fingerprint);
+    if (existing?.on_device) throw new ImportFailure('duplicate');
+
+    if (s !== session || s.cancelled) throw new CopyCancelled();
+    s.prepared = prepared;
+    const durationMs = prepared.tracks.reduce((sum, t) => sum + t.durationMs, 0);
+    set((st) => ({ status: 'ready', current: st.current && { ...st.current, durationMs } }));
+  } catch (error) {
+    if (tmpDir?.exists) tmpDir.delete();
+    if (error instanceof CopyCancelled || s !== session) return;
+    set({ status: 'failed', error: error instanceof ImportFailure ? error.key : 'generic' });
+    if (!(error instanceof ImportFailure)) console.warn('Import failed', error);
+  }
+}
+
+async function copyGroup(
+  group: ImportGroup,
+  tmpDir: Directory,
+  s: NonNullable<typeof session>,
+): Promise<{ fileName: string; picked: PickedFile }[]> {
+  const out: { fileName: string; picked: PickedFile }[] = [];
+  let before = 0;
+  for (const [i, picked] of group.files.entries()) {
+    // Stored under a neutral numbered name: unique, and no user text in paths.
+    const fileName = `${String(i + 1).padStart(3, '0')}.${extensionOf(picked.name)}`;
+    const source = new File(picked.uri);
+    const dest = new File(tmpDir, fileName);
+    dest.create({ overwrite: true });
+    const size = picked.size || source.size;
+    let readHandle: ReturnType<File['open']> | null = null;
+    try {
+      readHandle = source.open(FileMode.ReadOnly);
+    } catch (error) {
+      // Some document providers can't be opened for random access; fall back
+      // to the native copy (no byte-level progress, but still off the JS thread).
+      console.warn('Chunked copy unavailable, using native copy', error);
+    }
+    let copied: number;
+    if (readHandle) {
+      copied = await chunkedCopy(
+        readHandle,
+        dest.open(FileMode.Truncate),
+        size,
+        (n) =>
+          set((st) => ({ current: st.current && { ...st.current, bytesCopied: before + n } })),
+        () => s.cancelled || s !== session,
+      );
+    } else {
+      await source.copy(dest, { overwrite: true });
+      if (s.cancelled || s !== session) throw new CopyCancelled();
+      copied = dest.size;
+      set((st) => ({ current: st.current && { ...st.current, bytesCopied: before + copied } }));
+    }
+    before += copied;
+    out.push({ fileName, picked });
+    set((st) => ({ current: st.current && { ...st.current, filesCopied: i + 1 } }));
+  }
+  return out;
+}
+
+async function analyse(
+  group: ImportGroup,
+  tmpDir: Directory,
+  copied: { fileName: string; picked: PickedFile }[],
+): Promise<Prepared> {
+  const sha256 = (data: Uint8Array<ArrayBuffer>) => digest(CryptoDigestAlgorithm.SHA256, data);
+  const tracks: Prepared['tracks'] = [];
+  const fingerprints: string[] = [];
+  let sizeBytes = 0;
+
+  for (const { fileName, picked } of copied) {
+    const file = new File(tmpDir, fileName);
+    const size = file.size;
+    sizeBytes += size;
+
+    const { head, tail } = fingerprintRanges(size);
+    const handle = file.open(FileMode.ReadOnly);
+    let headBytes: Uint8Array;
+    let tailBytes: Uint8Array;
+    try {
+      handle.offset = head[0];
+      headBytes = handle.readBytes(head[1]);
+      handle.offset = tail[0];
+      tailBytes = handle.readBytes(tail[1]);
+    } finally {
+      handle.close();
+    }
+    fingerprints.push(await fileFingerprint(size, headBytes, tailBytes, sha256));
+
+    const durationMs = await probeDuration(file.uri);
+    tracks.push({ fileName, title: picked.name.replace(/\.[^.]+$/, ''), durationMs });
+  }
+
+  return {
+    tmpDir,
+    tracks,
+    fingerprint: await bookFingerprint(fingerprints, sha256),
+    sizeBytes,
+  };
+}
+
+/** Loads the file in a silent player to read its duration (also proves it's playable). */
+async function probeDuration(uri: string): Promise<number> {
+  const player = createAudioPlayer({ uri }, { updateInterval: 100 });
+  try {
+    return await new Promise<number>((resolve, reject) => {
+      let poll: ReturnType<typeof setInterval> | undefined;
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new ImportFailure('unplayable'));
+      }, PROBE_TIMEOUT_MS);
+      const check = (status: Pick<AudioStatus, 'isLoaded' | 'duration'>) => {
+        if (status.isLoaded && status.duration > 0) {
+          cleanup();
+          resolve(Math.round(status.duration * 1000));
+        }
+      };
+      const sub = player.addListener('playbackStatusUpdate', check);
+      const cleanup = () => {
+        clearTimeout(timer);
+        clearInterval(poll);
+        sub.remove();
+      };
+      // Status events aren't guaranteed while paused, so also poll.
+      poll = setInterval(() => check({ isLoaded: player.isLoaded, duration: player.duration }), 100);
+    });
+  } finally {
+    player.remove();
+  }
+}
+
+export function updateDetails(title: string, author: string | null): void {
+  set((st) => ({ current: st.current && { ...st.current, title, author } }));
+}
+
+/** Saves the prepared book, then moves on to the next group in the queue. */
+export async function saveCurrent(): Promise<string | null> {
+  const s = session;
+  const current = useImportStore.getState().current;
+  if (!s?.prepared || !current) return null;
+  const { prepared } = s;
+  const title = current.title.trim() || current.group.suggestedTitle;
+
+  set({ status: 'saving' });
+  const bookId = randomUUID();
+  const finalDir = new Directory(Paths.document, BOOKS_DIR, bookId);
+  try {
+    prepared.tmpDir.rename(bookId);
+    s.prepared = null;
+    await insertAudioBook(s.db, {
+      id: bookId,
+      userId: s.userId,
+      fingerprint: prepared.fingerprint,
+      title,
+      author: current.author?.trim() || null,
+      sizeBytes: prepared.sizeBytes,
+      addedAt: Date.now(),
+      tracks: prepared.tracks.map((t) => ({
+        id: randomUUID(),
+        filePath: `${BOOKS_DIR}/${bookId}/${t.fileName}`,
+        title: t.title,
+        durationMs: t.durationMs,
+      })),
+    });
+  } catch (error) {
+    if (finalDir.exists) finalDir.delete();
+    if (prepared.tmpDir.exists) prepared.tmpDir.delete();
+    console.warn('Saving import failed', error);
+    set({ status: 'failed', error: 'generic' });
+    return null;
+  }
+
+  const state = useImportStore.getState();
+  set({
+    savedBookIds: [...state.savedBookIds, bookId],
+    lastSavedFileCount: current.group.files.length,
+  });
+  if (state.index + 1 < state.queue.length) {
+    set({ index: state.index + 1 });
+    void prepareCurrent();
+  } else {
+    set({ status: 'done' });
+  }
+  return bookId;
+}
+
+/** Skips a failed group and continues with the rest of the queue. */
+export function skipCurrent(): void {
+  const state = useImportStore.getState();
+  if (state.index + 1 < state.queue.length) {
+    set({ index: state.index + 1 });
+    void prepareCurrent();
+  } else {
+    finish();
+  }
+}
+
+/** Stops any running copy and removes everything not yet saved. */
+export function cancelImport(): void {
+  if (session) {
+    session.cancelled = true;
+    if (session.prepared?.tmpDir.exists) session.prepared.tmpDir.delete();
+  }
+  finish();
+}
+
+function finish(): void {
+  session = null;
+  set(initialImportState);
+}
+
+/** Removes temporary folders left behind if the app was killed mid-import. */
+export function cleanupStaleImports(): void {
+  try {
+    const root = new Directory(Paths.document, BOOKS_DIR);
+    if (!root.exists) return;
+    for (const entry of root.list()) {
+      if (entry instanceof Directory && entry.name.startsWith(TMP_PREFIX)) entry.delete();
+    }
+  } catch (error) {
+    console.warn('Could not clean up stale imports', error);
+  }
+}

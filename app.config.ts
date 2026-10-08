@@ -54,6 +54,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-localization',
     'expo-apple-authentication',
     [
+      'expo-audio',
+      {
+        // Playback only: no microphone permission, background audio on.
+        microphonePermission: false,
+        recordAudioAndroid: false,
+        enableBackgroundPlayback: true,
+      },
+    ],
+    [
       'expo-build-properties',
       {
         android: { minSdkVersion: 29 },
