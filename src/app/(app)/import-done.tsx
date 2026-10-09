@@ -8,7 +8,8 @@ import { getBook } from '@/db/repositories/books';
 import { cancelImport } from '@/features/import/importer';
 import { useImportStore } from '@/features/import/store';
 import { loadBook } from '@/features/player/controller';
-import { Button, colors, GeneratedCover, Icon, Screen, Text } from '@/ui';
+import { fileUri } from '@/lib/files';
+import { Button, colors, Cover, Icon, Screen, Text } from '@/ui';
 
 export default function ImportDone() {
   const { t } = useTranslation();
@@ -18,12 +19,15 @@ export default function ImportDone() {
     savedBookIds: useImportStore.getState().savedBookIds,
     fileCount: useImportStore.getState().lastSavedFileCount,
   }));
-  const [title, setTitle] = useState('');
+  const [book, setBook] = useState<{ title: string; coverUri: string | null }>({ title: '', coverUri: null });
+  const title = book.title;
   const lastId = savedBookIds[savedBookIds.length - 1];
 
   useEffect(() => {
     cancelImport();
-    if (lastId) void getBook(db, lastId).then((b) => setTitle(b?.title ?? ''));
+    if (lastId) {
+      void getBook(db, lastId).then((b) => setBook({ title: b?.title ?? '', coverUri: fileUri(b?.cover_path) }));
+    }
   }, [db, lastId]);
 
   const many = savedBookIds.length > 1;
@@ -45,7 +49,7 @@ export default function ImportDone() {
       }
       contentStyle={styles.content}>
       <View style={styles.circle} accessible={false} importantForAccessibility="no-hide-descendants">
-        <GeneratedCover title={title || ' '} width={116} height={116} radius={16} />
+        <Cover uri={book.coverUri} title={title || ' '} width={116} height={116} radius={16} />
         <View style={styles.check}>
           <Icon name="check" size={26} color={colors.white} strokeWidth={3.2} />
         </View>

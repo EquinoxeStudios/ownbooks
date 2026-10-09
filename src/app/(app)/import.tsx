@@ -17,8 +17,8 @@ import {
   Button,
   Card,
   colors,
+  Cover,
   fonts,
-  GeneratedCover,
   Icon,
   IconButton,
   ProgressBar,
@@ -122,7 +122,13 @@ export default function ImportScreen() {
         </Text>
 
         <Card style={styles.bookCard}>
-          <GeneratedCover title={cur.title || cur.group.suggestedTitle} width={76} height={76} radius={12} />
+          <Cover
+            uri={cur.coverUri}
+            title={cur.title || cur.group.suggestedTitle}
+            width={76}
+            height={76}
+            radius={12}
+          />
           <View style={styles.bookText}>
             <Text style={styles.bookTitle} numberOfLines={2}>
               {cur.title}

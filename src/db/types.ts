@@ -31,6 +31,8 @@ export type BookRow = {
   finished_at: number | null;
   updated_at: number;
   dirty: number;
+  /** 1 once the files' tags have been read (cover, chapters, track titles). */
+  tags_read: number;
 };
 
 export type ProgressRow = {

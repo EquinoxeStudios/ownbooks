@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { GeneratedCover, Icon, Text } from '@/ui';
+import { Cover, Icon, Text } from '@/ui';
 import { colors, fonts } from '@/ui/tokens';
 
 import { togglePlay } from './controller';
@@ -18,11 +18,14 @@ export function MiniPlayer() {
   const tracks = usePlayerStore((s) => s.tracks);
   const trackIdx = usePlayerStore((s) => s.trackIdx);
   const positionMs = usePlayerStore((s) => s.positionMs);
+  const coverUri = usePlayerStore((s) => s.coverUri);
+  const chapterCount = usePlayerStore((s) => s.chapters.length);
+  const chapterIdx = usePlayerStore((s) => s.chapterIdx);
   if (!bookId) return null;
 
   const fraction = fractionOf(tracks, trackIdx, positionMs);
   const subtitle = [
-    tracks.length > 1 ? t('player.trackOf', { current: trackIdx + 1, total: tracks.length }) : null,
+    chapterCount > 1 ? t('player.chapterOf', { current: chapterIdx + 1, total: chapterCount }) : null,
     playing ? t('player.playing') : t('player.paused'),
   ]
     .filter(Boolean)
@@ -40,7 +43,7 @@ export function MiniPlayer() {
             accessibilityLabel={t('player.open', { title })}
             onPress={() => router.push('/player')}
             style={styles.open}>
-            <GeneratedCover title={title} width={40} height={40} />
+            <Cover uri={coverUri} title={title} width={40} height={40} />
             <View style={styles.text}>
               <Text style={styles.title} numberOfLines={1}>
                 {title}

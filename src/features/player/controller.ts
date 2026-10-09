@@ -1,12 +1,20 @@
-import { createAudioPlayer, setAudioModeAsync, type AudioPlayer, type AudioStatus } from 'expo-audio';
-import { File, Paths } from 'expo-file-system';
+import {
+  createAudioPlayer,
+  setAudioModeAsync,
+  type AudioMetadata,
+  type AudioPlayer,
+  type AudioStatus,
+} from 'expo-audio';
 import { AppState } from 'react-native';
 
 import { getBook, markOpened } from '@/db/repositories/books';
+import { listChapters } from '@/db/repositories/chapters';
 import { getProgress, saveAudioPosition } from '@/db/repositories/progress';
 import { listTracks } from '@/db/repositories/tracks';
 import type { Db } from '@/db/types';
+import { fileUri } from '@/lib/files';
 
+import { buildChapters, chapterAt, nextChapterStart, previousChapterStart } from './chapters';
 import { fractionOf, fromGlobal, toGlobal } from './position';
 import { emptyPlayerState, usePlayerStore, type PlayerTrack } from './store';
 
@@ -51,11 +59,6 @@ AppState.addEventListener('change', (state) => {
   if (state !== 'active') void savePosition();
 });
 
-/** Absolute URI for a stored relative path (the documents dir moves between iOS installs). */
-function uriFor(relativePath: string): File {
-  return new File(Paths.document, relativePath);
-}
-
 /** Loads a book (no-op if it's already loaded) and optionally starts playing. */
 export async function loadBook(database: Db, bookId: string, opts: { autoplay?: boolean } = {}) {
   db = database;
@@ -65,17 +68,21 @@ export async function loadBook(database: Db, bookId: string, opts: { autoplay?: 
   }
   await unload();
 
-  const [book, trackRows, progress] = await Promise.all([
+  const [book, trackRows, chapterRows, progress] = await Promise.all([
     getBook(database, bookId),
     listTracks(database, bookId),
+    listChapters(database, bookId),
     getProgress(database, bookId),
   ]);
   if (!book || trackRows.length === 0) return;
 
-  const tracks: PlayerTrack[] = trackRows.map((t) => {
-    const file = uriFor(t.file_path);
-    return { title: t.title, durationMs: t.duration_ms, uri: file.exists ? file.uri : '' };
-  });
+  // Stored paths are relative: the documents dir moves between iOS installs.
+  const tracks: PlayerTrack[] = trackRows.map((t) => ({
+    title: t.title,
+    durationMs: t.duration_ms,
+    uri: fileUri(t.file_path) ?? '',
+  }));
+  const chapters = buildChapters(tracks, chapterRows);
   const speed = progress?.speed ?? 1;
   let trackIdx = Math.min(progress?.track_idx ?? 0, tracks.length - 1);
   let positionMs = progress?.position_ms ?? 0;
@@ -90,8 +97,11 @@ export async function loadBook(database: Db, bookId: string, opts: { autoplay?: 
     bookId,
     title: book.title,
     author: book.author,
+    coverUri: fileUri(book.cover_path),
     tracks,
     trackIdx,
+    chapters,
+    chapterIdx: chapterAt(chapters, toGlobal(tracks, trackIdx, positionMs)),
     positionMs,
     speed,
   });
@@ -105,11 +115,7 @@ export async function loadBook(database: Db, bookId: string, opts: { autoplay?: 
   player = createAudioPlayer({ uri: tracks[trackIdx].uri }, { updateInterval: UPDATE_INTERVAL_MS });
   statusSub = player.addListener('playbackStatusUpdate', onStatus);
   player.setPlaybackRate(speed);
-  player.setActiveForLockScreen(
-    true,
-    { title: book.title, artist: book.author ?? undefined, albumTitle: tracks[trackIdx].title ?? undefined },
-    { showSeekForward: true, showSeekBackward: true },
-  );
+  player.setActiveForLockScreen(true, lockScreenMetadata(), { showSeekForward: true, showSeekBackward: true });
   await markOpened(database, bookId, Date.now());
 
   if (!(await waitUntilLoaded(player))) {
@@ -135,10 +141,31 @@ function waitUntilLoaded(p: AudioPlayer): Promise<boolean> {
   });
 }
 
+/** Lock screen / notification: chapter as the title, the book as the album. */
+function lockScreenMetadata(): AudioMetadata {
+  const { title, author, coverUri, chapters, chapterIdx } = get();
+  return {
+    title: chapters[chapterIdx]?.title ?? title,
+    artist: author ?? undefined,
+    albumTitle: title,
+    artworkUrl: coverUri ?? undefined,
+  };
+}
+
+/** Keeps chapterIdx in step with the position; refreshes the lock screen when it changes. */
+function updateChapter(force = false) {
+  const { chapters, chapterIdx } = get();
+  const idx = chapterAt(chapters, globalPosition());
+  if (idx === chapterIdx && !force) return;
+  set({ chapterIdx: idx });
+  player?.updateLockScreenMetadata(lockScreenMetadata());
+}
+
 function onStatus(status: AudioStatus) {
   if (switchingTrack || !restored) return;
   const positionMs = Math.round(status.currentTime * 1000);
   set({ positionMs, playing: status.playing, buffering: status.isBuffering, loaded: status.isLoaded });
+  updateChapter();
 
   if (status.didJustFinish) {
     void advanceTrack();
@@ -166,14 +193,13 @@ async function advanceTrack() {
 
 async function switchTrack(index: number, positionMs: number, autoplay: boolean) {
   const p = player;
-  const { tracks, title, author } = get();
-  const track = tracks[index];
+  const track = get().tracks[index];
   if (!p || !track) return;
   switchingTrack = true;
   try {
     p.replace({ uri: track.uri });
     set({ trackIdx: index, positionMs });
-    p.updateLockScreenMetadata({ title, artist: author ?? undefined, albumTitle: track.title ?? undefined });
+    updateChapter(true);
     if (autoplay) p.play();
     if (positionMs > 0) {
       await waitUntilLoaded(p);
@@ -214,6 +240,7 @@ export async function seekToGlobal(globalMs: number) {
     return;
   }
   set({ positionMs: target.positionMs });
+  updateChapter();
   await player.seekTo(target.positionMs / 1000);
   await savePosition();
 }
@@ -223,17 +250,20 @@ export async function skipBy(deltaMs: number) {
   await seekToGlobal(toGlobal(tracks, trackIdx, positionMs) + deltaMs);
 }
 
-/** Previous/next file for multi-file books (chapters arrive in milestone 3). */
-export async function previousTrack() {
-  const { trackIdx, positionMs, playing } = get();
-  // Like most players: go to the start of this track unless we're near it.
-  if (positionMs > 3_000 || trackIdx === 0) await seekToGlobal(globalPosition() - positionMs);
-  else await switchTrack(trackIdx - 1, 0, playing);
+/** Like most players: restarts the chapter unless it only just started. */
+export async function previousChapter() {
+  await seekToGlobal(previousChapterStart(get().chapters, globalPosition()));
 }
 
-export async function nextTrack() {
-  const { trackIdx, tracks, playing } = get();
-  if (trackIdx + 1 < tracks.length) await switchTrack(trackIdx + 1, 0, playing);
+export async function nextChapter() {
+  const start = nextChapterStart(get().chapters, globalPosition());
+  if (start !== null) await seekToGlobal(start);
+}
+
+/** Jumps to a chapter from the chapter list, keeping play/pause as it was. */
+export async function jumpToChapter(index: number) {
+  const chapter = get().chapters[index];
+  if (chapter) await seekToGlobal(chapter.globalStartMs);
 }
 
 export function setSpeed(rate: number) {

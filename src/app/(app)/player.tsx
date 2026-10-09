@@ -4,8 +4,8 @@ import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
-  nextTrack,
-  previousTrack,
+  nextChapter,
+  previousChapter,
   seekToGlobal,
   skipBy,
   togglePlay,
@@ -38,10 +38,13 @@ export default function Player() {
     );
   }
 
-  const track = s.tracks[s.trackIdx];
-  const trackDuration = track?.durationMs ?? 0;
-  const multi = s.tracks.length > 1;
-  const heading = multi && track?.title ? track.title : s.title;
+  // The seek bar and times cover the current chapter (a whole track when it has no chapters).
+  const chapter = s.chapters[s.chapterIdx];
+  const multi = s.chapters.length > 1;
+  const chapterStart = chapter?.globalStartMs ?? 0;
+  const chapterDuration = chapter?.durationMs ?? 0;
+  const elapsed = Math.min(chapterDuration, Math.max(0, toGlobal(s.tracks, s.trackIdx, s.positionMs) - chapterStart));
+  const heading = multi ? (chapter?.title ?? t('player.chapterFallback', { number: s.chapterIdx + 1 })) : s.title;
   const coverSize = Math.min(292, width - 96);
 
   return (
@@ -57,12 +60,24 @@ export default function Player() {
           />
         </View>
         <Text variant="meta" color={playerColors.muted} style={styles.topLabel}>
-          {multi ? t('player.trackOf', { current: s.trackIdx + 1, total: s.tracks.length }) : ''}
+          {multi ? t('player.chapterOf', { current: s.chapterIdx + 1, total: s.chapters.length }) : ''}
         </Text>
-        <View style={styles.topSpacer} />
+        <View style={styles.chaptersButton}>
+          {multi ? (
+            <IconButton
+              icon="list"
+              accessibilityLabel={t('player.chapters')}
+              color={playerColors.text}
+              strokeWidth={2.4}
+              onPress={() => router.push('/chapters')}
+            />
+          ) : (
+            <View style={styles.spacer} />
+          )}
+        </View>
       </View>
 
-      <PlayerCover title={s.title} author={s.author} size={coverSize} />
+      <PlayerCover uri={s.coverUri} title={s.title} author={s.author} size={coverSize} />
 
       <View style={styles.titles}>
         <Text style={styles.heading} color={playerColors.text} numberOfLines={2} accessibilityRole="header">
@@ -80,21 +95,21 @@ export default function Player() {
       ) : (
         <View style={styles.seek}>
           <SeekBar
-            positionMs={s.positionMs}
-            durationMs={trackDuration}
-            onSeek={(ms) => seekToGlobal(toGlobal(s.tracks, s.trackIdx, ms))}
+            positionMs={elapsed}
+            durationMs={chapterDuration}
+            onSeek={(ms) => seekToGlobal(chapterStart + ms)}
             accessibilityLabel={t('player.seek')}
-            accessibilityValueText={`${t('player.elapsed', { time: formatClock(s.positionMs) })}, ${t(
+            accessibilityValueText={`${t('player.elapsed', { time: formatClock(elapsed) })}, ${t(
               'player.remaining',
-              { time: formatClock(trackDuration - s.positionMs) },
+              { time: formatClock(chapterDuration - elapsed) },
             )}`}
           />
           <View style={styles.times}>
             <Text style={styles.time} color={playerColors.muted}>
-              {formatClock(s.positionMs)}
+              {formatClock(elapsed)}
             </Text>
             <Text style={styles.time} color={playerColors.muted}>
-              {formatRemaining(trackDuration - s.positionMs)}
+              {formatRemaining(chapterDuration - elapsed)}
             </Text>
           </View>
         </View>
@@ -104,10 +119,10 @@ export default function Player() {
         {multi ? (
           <IconButton
             icon="prevChapter"
-            accessibilityLabel={t('player.previousTrack')}
+            accessibilityLabel={t('player.previousChapter')}
             color={playerColors.muted}
             iconSize={20}
-            onPress={previousTrack}
+            onPress={previousChapter}
           />
         ) : (
           <View style={styles.spacer} />
@@ -128,10 +143,10 @@ export default function Player() {
         {multi ? (
           <IconButton
             icon="nextChapter"
-            accessibilityLabel={t('player.nextTrack')}
+            accessibilityLabel={t('player.nextChapter')}
             color={playerColors.muted}
             iconSize={20}
-            onPress={nextTrack}
+            onPress={nextChapter}
           />
         ) : (
           <View style={styles.spacer} />
@@ -166,7 +181,7 @@ const styles = StyleSheet.create({
   topRow: { height: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   closeButton: { marginLeft: -10 },
   topLabel: { fontFamily: fonts.medium },
-  topSpacer: { width: 34 },
+  chaptersButton: { marginRight: -10 },
   titles: { gap: 10 },
   heading: { fontFamily: fonts.black, fontSize: 30, lineHeight: 34, letterSpacing: -0.3 },
   sub: { fontSize: 16 },

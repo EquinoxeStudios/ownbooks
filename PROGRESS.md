@@ -1,6 +1,6 @@
 # OwnBooks: Progress
 
-Last updated: 2026-10-08
+Last updated: 2026-10-09
 
 Source of truth for scope: [`docs/design/spec.md`](docs/design/spec.md), plus the
 interview decisions in the build plan (summarised in "Decisions" below).
@@ -14,7 +14,7 @@ next one starts.
 | 0 | Prerequisites (accounts, MCP servers, backend projects) | ✅ Done (Apple / Play Console pending) |
 | 1 | Foundation | ✅ Code complete, running on Android; review in progress |
 | 2 | Single-file audio + audio risk spike | 🔨 Built, awaiting device checks |
-| 3 | Full audio | ⬜ Not started |
+| 3 | Full audio | 🔨 Partly done (tags, covers, chapters pulled forward) |
 | 4 | Ebooks | ⬜ Not started |
 | 5 | Sync | ⬜ Not started |
 | 6 | Analytics, polish, release prep | ⬜ Not started |
@@ -98,7 +98,8 @@ Audio findings (expo-audio 57):
 - expo-file-system 57: reading a picked `content://` file through `FileHandle` fails on Android
   with "Bad file descriptor" (the ParcelFileDescriptor is garbage-collected), so imports use the
   native copy instead of chunked JS reads. Worth reporting upstream.
-- No lock-screen artwork yet: generated covers aren't images. Real cover art arrives in milestone 3.
+- Lock-screen artwork: the cover from the file's tags (a `file://` URL; expo-audio loads it on both
+  platforms). Books without cover art show none, because generated covers aren't images.
 
 Device checks (spec §6.1). Stop and reassess the audio library if any fail:
 - [ ] Position writes keep working with the screen locked for 30+ min
@@ -110,13 +111,30 @@ Device checks (spec §6.1). Stop and reassess the audio library if any fail:
 - [ ] Large file (500 MB M4B) imports with visible progress and without freezing
 - [ ] Sleep timer under lock: moved to milestone 3 together with the sleep timer itself
 
-## Milestone 3: Full audio ⬜
+## Milestone 3: Full audio 🔨
 
-- [ ] Multi-file import: track-number tag order, review step (reorder / split / merge); basic multi-file import exists from M2
-- [ ] Grouping rule: several MP3/M4A files → one book; each M4B / EPUB → its own book; mixed → review
-- [ ] Import success screen
-- [ ] M4B chapters, tags and cover art (evaluate `music-metadata` with chunked reads)
-- [ ] Chapter / track list, previous/next chapter
+Pulled forward after testing a 40-file MP3 book (2026-10-09):
+- [x] Tag reader in TypeScript, no dependency (`src/features/import/tags`): ID3v2.2–2.4 + ID3v1
+      (title, album, artist, album artist, composer, track/disc, front cover, CHAP chapters) and
+      MP4 (`ilst` tags, `covr`, Nero `chpl` and QuickTime chapter tracks). Reads only the
+      metadata boxes/frames, never the audio. Bad tags never fail an import.
+      Tested against real ffmpeg-made files (`scripts/make-tag-fixtures.mjs`).
+      `music-metadata` was not used: ESM/Node streams, and Hermes lacks the needed TextDecoders.
+- [x] Book title = album shared by the files (single file: its title tag), author = album artist /
+      artist / composer; filename rules only as a fallback. Track order by disc/track number when
+      every file is numbered; track titles from tags or the filename without its numbering.
+- [x] Cover art saved as `books/<id>/cover.jpg|png`; shown in library, mini-player, player,
+      import screens and the lock screen.
+- [x] Chapters: embedded chapters, or one per file. The player shows "Chapter X of N", the
+      seek bar spans the current chapter, prev/next chapter, and a Chapters sheet to jump.
+- [x] Existing books are repaired once on launch (migration v2 `tags_read`): cover, chapters and
+      track names are added; the title/author change only if they were never edited.
+- [ ] Device checks: the 40-file book renames itself and lists its tracks; the 460 MB M4B
+      shows its chapters and cover; lock-screen artwork and chapter name
+
+Still to do:
+- [ ] Review step for mixed selections (reorder / split / merge)
+- [ ] Grouping rule: mixed selection → review
 - [ ] Speed sheet 0.5–3.0× (stored per book already), sleep timer (durations + end of chapter), configurable skip intervals
 - [ ] Library: Continue card, sort sheet, filters, book detail (edit / delete / mark as finished)
 - [ ] Local listening activity (daily seconds)

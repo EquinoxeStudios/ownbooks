@@ -89,6 +89,11 @@ export const migrations: { version: number; sql: string }[] = [
       );
     `,
   },
+  {
+    // Set once a book's embedded tags (cover, chapters, track titles) have been read.
+    version: 2,
+    sql: `ALTER TABLE books ADD COLUMN tags_read INTEGER NOT NULL DEFAULT 0;`,
+  },
 ];
 
 export const LATEST_VERSION = migrations[migrations.length - 1].version;

@@ -21,6 +21,7 @@ export async function insertBook(db: Db, overrides: Partial<BookRow> = {}): Prom
     finished_at: null,
     updated_at: now,
     dirty: 1,
+    tags_read: 0,
     ...overrides,
   };
   const cols = Object.keys(book);

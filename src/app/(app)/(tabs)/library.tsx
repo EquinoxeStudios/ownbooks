@@ -9,12 +9,13 @@ import { listLibrary, type LibraryFilter, type LibraryItem } from '@/db/reposito
 import { useAuthStore } from '@/features/auth/store';
 import { pickAndImport } from '@/features/import/importer';
 import { loadBook } from '@/features/player/controller';
+import { fileUri } from '@/lib/files';
 import {
   Button,
   Chip,
   colors,
+  Cover,
   fonts,
-  GeneratedCover,
   IconButton,
   ProgressBar,
   Text,
@@ -146,7 +147,7 @@ function BookRow({ book, onPress }: { book: LibraryItem; onPress: () => void }) 
       accessibilityRole="button"
       accessibilityLabel={`${book.title}, ${meta}, ${pct}%`}
       onPress={onPress}>
-      <GeneratedCover title={book.title} width={60} height={84} />
+      <Cover uri={fileUri(book.cover_path)} title={book.title} width={60} height={84} />
       <View style={styles.rowText}>
         <Text variant="title" numberOfLines={2}>
           {book.title}

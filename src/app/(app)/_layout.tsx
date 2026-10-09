@@ -1,11 +1,15 @@
 import { router, Stack } from 'expo-router';
 import { useEffect } from 'react';
 
+import { useDb } from '@/db/provider';
 import { useAuthStore } from '@/features/auth/store';
+import { backfillTags } from '@/features/import/backfill';
 import { cleanupStaleImports } from '@/features/import/importer';
 import { colors, playerColors } from '@/ui/tokens';
 
 export default function AppLayout() {
+  const db = useDb();
+  const userId = useAuthStore((s) => s.account?.id ?? '');
   const hasOtherAccounts = useAuthStore((s) => s.otherAccounts.length > 0);
 
   // A different account signed in on this device: offer to clean up once.
@@ -18,6 +22,11 @@ export default function AppLayout() {
     cleanupStaleImports();
   }, []);
 
+  // Books imported before tag support get their covers, chapters and names now.
+  useEffect(() => {
+    if (userId) void backfillTags(db, userId);
+  }, [db, userId]);
+
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
       <Stack.Screen name="(tabs)" />
@@ -26,6 +35,16 @@ export default function AppLayout() {
         options={{
           presentation: 'fullScreenModal',
           animation: 'slide_from_bottom',
+          contentStyle: { backgroundColor: playerColors.bg },
+        }}
+      />
+      <Stack.Screen
+        name="chapters"
+        options={{
+          presentation: 'formSheet',
+          sheetAllowedDetents: [0.9],
+          sheetGrabberVisible: true,
+          sheetCornerRadius: 28,
           contentStyle: { backgroundColor: playerColors.bg },
         }}
       />

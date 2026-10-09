@@ -1,3 +1,7 @@
 * text=auto eol=lf
 *.png binary
 *.html linguist-documentation
+*.mp3 binary
+*.m4a binary
+*.m4b binary
+*.jpg binary

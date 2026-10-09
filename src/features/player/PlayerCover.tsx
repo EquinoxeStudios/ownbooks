@@ -1,11 +1,25 @@
+import { Image } from 'expo-image';
 import { StyleSheet, View } from 'react-native';
 
 import { coverColorsFor } from '@/ui/components/GeneratedCover';
 import { Text } from '@/ui';
 import { fonts } from '@/ui/tokens';
 
-/** The large generated cover on the player screen: author on top, title below. */
-export function PlayerCover({ title, author, size }: { title: string; author: string | null; size: number }) {
+type PlayerCoverProps = { uri: string | null; title: string; author: string | null; size: number };
+
+/** The large cover on the player screen: the book's own art, or a generated tile with author and title. */
+export function PlayerCover({ uri, title, author, size }: PlayerCoverProps) {
+  if (uri) {
+    return (
+      <Image
+        source={{ uri }}
+        style={[styles.tile, { width: size, height: size }]}
+        contentFit="cover"
+        accessible={false}
+        transition={0}
+      />
+    );
+  }
   const { bg, fg } = coverColorsFor(title);
   const titleSize = Math.round(size * 0.2);
   return (

@@ -1,6 +1,16 @@
 import { createTestDb } from '../../../test/nodeDb';
 import { migrate } from '../migrations';
-import { findByFingerprint, getBook, insertAudioBook, listLibrary, markOpened } from '../repositories/books';
+import {
+  applyTags,
+  findByFingerprint,
+  getBook,
+  insertAudioBook,
+  listBooksWithoutTags,
+  listLibrary,
+  markOpened,
+  markTagsRead,
+} from '../repositories/books';
+import { listChapters } from '../repositories/chapters';
 import { getProgress, saveAudioPosition } from '../repositories/progress';
 import { listTracks } from '../repositories/tracks';
 import type { Db } from '../types';
@@ -21,6 +31,11 @@ const book = {
   author: 'Mary Shelley',
   sizeBytes: 300,
   addedAt: 1000,
+  coverPath: 'books/b1/cover.jpg',
+  chapters: [
+    { trackIdx: 1, title: 'Later', startMs: 500 },
+    { trackIdx: 0, title: 'First', startMs: 0 },
+  ],
   tracks: [
     { id: 't2', filePath: 'books/b1/02.mp3', title: 'Two', durationMs: 2000 },
     { id: 't1', filePath: 'books/b1/01.mp3', title: 'One', durationMs: 1000 },
@@ -31,7 +46,19 @@ describe('insertAudioBook', () => {
   it('stores the book, tracks in order, and an empty progress row', async () => {
     await insertAudioBook(db, book);
     const row = await getBook(db, 'b1');
-    expect(row).toMatchObject({ type: 'audio', title: 'Frankenstein', duration_ms: 3000, on_device: 1, dirty: 1 });
+    expect(row).toMatchObject({
+      type: 'audio',
+      title: 'Frankenstein',
+      cover_path: 'books/b1/cover.jpg',
+      duration_ms: 3000,
+      on_device: 1,
+      dirty: 1,
+      tags_read: 1,
+    });
+    expect((await listChapters(db, 'b1')).map((c) => [c.track_idx, c.title, c.start_ms])).toEqual([
+      [0, 'First', 0],
+      [1, 'Later', 500],
+    ]);
     expect((await listTracks(db, 'b1')).map((t) => [t.idx, t.id])).toEqual([
       [0, 't2'],
       [1, 't1'],
@@ -67,5 +94,47 @@ describe('progress', () => {
     await insertAudioBook(db, book);
     await markOpened(db, 'b1', 5000);
     expect((await getBook(db, 'b1'))?.last_opened_at).toBe(5000);
+  });
+});
+
+describe('reading tags of existing books', () => {
+  it('lists only untagged audiobooks on this device for the user', async () => {
+    await insertAudioBook(db, book);
+    await insertAudioBook(db, { ...book, id: 'b2', fingerprint: 'g'.repeat(64), tracks: [], chapters: [] });
+    await db.runAsync('UPDATE books SET tags_read = 0 WHERE id = ?', ['b2']);
+    expect((await listBooksWithoutTags(db, 'u1')).map((b) => b.id)).toEqual(['b2']);
+    expect(await listBooksWithoutTags(db, 'u2')).toEqual([]);
+    await markTagsRead(db, 'b2');
+    expect(await listBooksWithoutTags(db, 'u1')).toEqual([]);
+  });
+
+  it('applies details, cover, track titles and replaces chapters', async () => {
+    await insertAudioBook(db, { ...book, coverPath: null });
+    await db.runAsync('UPDATE books SET tags_read = 0, dirty = 0 WHERE id = ?', ['b1']);
+    await applyTags(db, {
+      bookId: 'b1',
+      details: { title: 'Real Title', author: 'Real Author' },
+      coverPath: 'books/b1/cover.png',
+      trackTitles: [{ id: 't1', title: 'Renamed' }],
+      chapters: [{ trackIdx: 0, title: 'Only', startMs: 0 }],
+      at: 9000,
+    });
+    expect(await getBook(db, 'b1')).toMatchObject({
+      title: 'Real Title',
+      author: 'Real Author',
+      cover_path: 'books/b1/cover.png',
+      tags_read: 1,
+      dirty: 1,
+      updated_at: 9000,
+    });
+    expect((await listTracks(db, 'b1')).map((t) => t.title)).toEqual(['Two', 'Renamed']);
+    expect((await listChapters(db, 'b1')).map((c) => c.title)).toEqual(['Only']);
+  });
+
+  it('keeps the title and sync state when no details are given', async () => {
+    await insertAudioBook(db, { ...book, coverPath: null });
+    await db.runAsync('UPDATE books SET dirty = 0 WHERE id = ?', ['b1']);
+    await applyTags(db, { bookId: 'b1', coverPath: null, trackTitles: [], chapters: [], at: 9000 });
+    expect(await getBook(db, 'b1')).toMatchObject({ title: 'Frankenstein', cover_path: null, dirty: 0, updated_at: 1000 });
   });
 });

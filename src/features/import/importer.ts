@@ -3,14 +3,17 @@ import { CryptoDigestAlgorithm, digest, randomUUID } from 'expo-crypto';
 import { getDocumentAsync } from 'expo-document-picker';
 import { Directory, File, FileMode, Paths } from 'expo-file-system';
 
-import { findByFingerprint, insertAudioBook } from '@/db/repositories/books';
+import { findByFingerprint, insertAudioBook, type NewChapter } from '@/db/repositories/books';
 import type { Db } from '@/db/types';
 import { BOOKS_DIR } from '@/lib/files';
 
 import { bookFingerprint, fileFingerprint, fingerprintRanges } from './fingerprint';
 import { AUDIO_PICKER_TYPES, extensionOf } from './formats';
 import { groupPickedFiles, type ImportGroup, type PickedFile } from './grouping';
+import { bookDetails } from './metadata';
 import { initialImportState, useImportStore, type ImportErrorKey } from './store';
+import { readTags, type AudioTags, type CoverImage } from './tags';
+import { withFileSource } from './tags/fileSource';
 
 /**
  * Import pipeline (spec §6): pick → group → copy → analyse → confirm → save.
@@ -35,7 +38,13 @@ class ImportFailure extends Error {
 
 type Prepared = {
   tmpDir: Directory;
+  /** In playback order. */
   tracks: { fileName: string; title: string; durationMs: number }[];
+  chapters: NewChapter[];
+  /** Cover file name inside tmpDir, if the tags had one. */
+  coverFile: string | null;
+  title: string;
+  author: string | null;
   fingerprint: string;
   sizeBytes: number;
 };
@@ -95,6 +104,8 @@ async function prepareCurrent(): Promise<void> {
       group,
       title: group.suggestedTitle,
       author: null,
+      edited: false,
+      coverUri: null,
       bytesTotal,
       bytesCopied: 0,
       filesCopied: 0,
@@ -124,7 +135,17 @@ async function prepareCurrent(): Promise<void> {
     if (s !== session || s.cancelled) throw new CopyCancelled();
     s.prepared = prepared;
     const durationMs = prepared.tracks.reduce((sum, t) => sum + t.durationMs, 0);
-    set((st) => ({ status: 'ready', current: st.current && { ...st.current, durationMs } }));
+    const coverUri = prepared.coverFile ? new File(tmpDir, prepared.coverFile).uri : null;
+    set((st) => ({
+      status: 'ready',
+      current: st.current && {
+        ...st.current,
+        durationMs,
+        coverUri,
+        // Details from the tags, unless the user already typed their own.
+        ...(st.current.edited ? null : { title: prepared.title, author: prepared.author }),
+      },
+    }));
   } catch (error) {
     if (tmpDir?.exists) tmpDir.delete();
     if (error instanceof CopyCancelled || s !== session) return;
@@ -199,8 +220,9 @@ async function analyse(
   copied: { fileName: string; picked: PickedFile }[],
 ): Promise<Prepared> {
   const sha256 = (data: Uint8Array<ArrayBuffer>) => digest(CryptoDigestAlgorithm.SHA256, data);
-  const tracks: Prepared['tracks'] = [];
-  const fingerprints: string[] = [];
+  const files: { fileName: string; picked: PickedFile; fingerprint: string; tags: AudioTags; durationMs: number }[] =
+    [];
+  let cover: CoverImage | undefined;
   let sizeBytes = 0;
 
   for (const { fileName, picked } of copied) {
@@ -221,18 +243,44 @@ async function analyse(
     } finally {
       handle.close();
     }
-    fingerprints.push(await fileFingerprint(size, headBytes, tailBytes, sha256));
+    const fingerprint = await fileFingerprint(size, headBytes, tailBytes, sha256);
+
+    step = `tags ${fileName}`;
+    // Only the first cover found is kept, so later files skip reading theirs.
+    const tags = withFileSource(file, (src) => readTags(src, extensionOf(picked.name), { cover: !cover }));
+    cover ??= tags.cover;
+    delete tags.cover;
 
     step = `probe ${fileName}`;
     const durationMs = await probeDuration(file.uri);
-    tracks.push({ fileName, title: picked.name.replace(/\.[^.]+$/, ''), durationMs });
+    files.push({ fileName, picked, fingerprint, tags, durationMs });
+  }
+
+  const details = bookDetails(files.map((f) => ({ name: f.picked.name, tags: f.tags })));
+  const ordered = details.order.map((i) => files[i]);
+
+  let coverFile: string | null = null;
+  if (cover) {
+    step = 'cover';
+    coverFile = cover.mime === 'image/png' ? 'cover.png' : 'cover.jpg';
+    new File(tmpDir, coverFile).write(cover.bytes);
   }
 
   step = 'book fingerprint';
   return {
     tmpDir,
-    tracks,
-    fingerprint: await bookFingerprint(fingerprints, sha256),
+    tracks: ordered.map((f, i) => ({ fileName: f.fileName, title: details.trackTitles[i], durationMs: f.durationMs })),
+    chapters: ordered.flatMap((f, trackIdx) =>
+      (f.tags.chapters ?? []).map((c) => ({ trackIdx, title: c.title, startMs: c.startMs })),
+    ),
+    coverFile,
+    title: details.title,
+    author: details.author,
+    // Fingerprinted in playback order, the order the book is stored in.
+    fingerprint: await bookFingerprint(
+      ordered.map((f) => f.fingerprint),
+      sha256,
+    ),
     sizeBytes,
   };
 }
@@ -268,7 +316,7 @@ async function probeDuration(uri: string): Promise<number> {
 }
 
 export function updateDetails(title: string, author: string | null): void {
-  set((st) => ({ current: st.current && { ...st.current, title, author } }));
+  set((st) => ({ current: st.current && { ...st.current, title, author, edited: true } }));
 }
 
 /** Saves the prepared book, then moves on to the next group in the queue. */
@@ -294,6 +342,8 @@ export async function saveCurrent(): Promise<string | null> {
       title,
       author: current.author?.trim() || null,
       sizeBytes: prepared.sizeBytes,
+      coverPath: prepared.coverFile ? `${BOOKS_DIR}/${bookId}/${prepared.coverFile}` : null,
+      chapters: prepared.chapters,
       addedAt: Date.now(),
       tracks: prepared.tracks.map((t) => ({
         id: randomUUID(),

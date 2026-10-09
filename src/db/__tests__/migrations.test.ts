@@ -1,5 +1,5 @@
 import { createTestDb } from '../../../test/nodeDb';
-import { LATEST_VERSION, migrate } from '../migrations';
+import { LATEST_VERSION, migrate, migrations } from '../migrations';
 
 describe('migrate', () => {
   it('creates the schema and records the version', async () => {
@@ -19,6 +19,21 @@ describe('migrate', () => {
       'progress',
       'tracks',
     ]);
+    db.close();
+  });
+
+  it('upgrades a version 1 database, keeping its books', async () => {
+    const db = createTestDb();
+    await db.execAsync(`${migrations[0].sql}
+PRAGMA user_version = 1;`);
+    await db.runAsync(
+      `INSERT INTO books (id, user_id, fingerprint, type, title, added_at, updated_at)
+       VALUES ('b1', 'u1', 'fp', 'audio', 'T', 0, 0)`,
+      [],
+    );
+    expect(await migrate(db)).toBe(LATEST_VERSION);
+    const row = await db.getFirstAsync<{ title: string; tags_read: number }>('SELECT * FROM books', []);
+    expect(row).toMatchObject({ title: 'T', tags_read: 0 });
     db.close();
   });
 

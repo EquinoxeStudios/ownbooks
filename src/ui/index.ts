@@ -3,6 +3,7 @@ export { BackHeader } from './components/BackHeader';
 export { Button } from './components/Button';
 export { Card } from './components/Card';
 export { Chip, Tag } from './components/Chip';
+export { Cover } from './components/Cover';
 export { GeneratedCover } from './components/GeneratedCover';
 export { Icon, type IconName } from './components/Icon';
 export { IconButton } from './components/IconButton';

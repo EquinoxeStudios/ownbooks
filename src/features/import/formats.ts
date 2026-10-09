@@ -47,5 +47,20 @@ export function titleFromFilenames(names: readonly string[]): string {
     prefix = prefix.slice(0, i);
   }
   const trimmed = prefix.replace(/[\s\-–—_.,:(]*(part|track|chapter|cd|disc)?[\s\-–—_.,:(]*\d*$/i, '').trim();
-  return trimmed.length >= 2 ? trimmed : titles[0];
+  return trimmed.length >= 2 ? trimmed : stripTrackNumber(titles[0]);
+}
+
+/**
+ * Removes leading track numbering: "01-y" → "y", "03. Foo" → "Foo",
+ * "Track 2 - Bar" → "Bar", "01 Baz" → "Baz". Bare numbers ("1984") and
+ * numbers without a leading zero before a space ("101 Dalmatians") are kept.
+ */
+export function stripTrackNumber(title: string): string {
+  const rest = title.replace(/^\s*(?:(?:track|part|chapter|cd|disc)\s*)?(?:\d{1,4}\s*[-–—_.):\]]+|0\d{0,3}\s+)\s*/i, '');
+  return rest.trim() ? rest.trim() : title;
+}
+
+/** A track's display title when its file has no title tag. */
+export function trackTitleFromFilename(name: string): string {
+  return stripTrackNumber(titleFromFilename(name));
 }

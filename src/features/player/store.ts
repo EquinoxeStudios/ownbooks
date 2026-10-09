@@ -1,13 +1,19 @@
 import { create } from 'zustand';
 
+import type { Chapter } from './chapters';
+
 export type PlayerTrack = { title: string | null; durationMs: number; uri: string };
 
 export type PlayerState = {
   bookId: string | null;
   title: string;
   author: string | null;
+  /** Absolute file:// URI of the cover image, if the book has one. */
+  coverUri: string | null;
   tracks: PlayerTrack[];
   trackIdx: number;
+  chapters: Chapter[];
+  chapterIdx: number;
   /** Position within the current track. */
   positionMs: number;
   playing: boolean;
@@ -21,8 +27,11 @@ export const emptyPlayerState: PlayerState = {
   bookId: null,
   title: '',
   author: null,
+  coverUri: null,
   tracks: [],
   trackIdx: 0,
+  chapters: [],
+  chapterIdx: 0,
   positionMs: 0,
   playing: false,
   buffering: false,

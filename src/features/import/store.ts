@@ -26,6 +26,10 @@ export type CurrentImport = {
   group: ImportGroup;
   title: string;
   author: string | null;
+  /** True once the user has edited title/author, so tags don't overwrite them. */
+  edited: boolean;
+  /** Cover found in the files' tags (file:// in the temporary import folder). */
+  coverUri: string | null;
   bytesTotal: number;
   bytesCopied: number;
   filesCopied: number;
